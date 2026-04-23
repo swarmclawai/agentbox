@@ -8,3 +8,5 @@ export * from "./inspect.js";
 export * from "./render.js";
 export * from "./recorder.js";
 export * from "./mcp-proxy.js";
+export * from "./demo.js";
+export * from "./export.js";

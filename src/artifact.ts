@@ -52,7 +52,7 @@ export function readEvents(eventsPath: string): AgentboxEvent[] {
 }
 
 export function resolveExistingRunPath(input: string, cwd = process.cwd()): RunPaths {
-  const absolute = path.isAbsolute(input) ? input : path.resolve(cwd, input);
+  const absolute = input === "latest" ? resolveLatestRunDir(cwd) : path.isAbsolute(input) ? input : path.resolve(cwd, input);
   const stat = fs.existsSync(absolute) ? fs.statSync(absolute) : undefined;
   const runDir = stat?.isDirectory() ? absolute : path.dirname(absolute);
   return {
@@ -63,4 +63,21 @@ export function resolveExistingRunPath(input: string, cwd = process.cwd()): RunP
     diffsJson: path.join(runDir, "diffs.json"),
     html: path.join(runDir, "agentbox-run.html"),
   };
+}
+
+function resolveLatestRunDir(cwd: string): string {
+  const runsDir = path.resolve(cwd, ".agentbox", "runs");
+  if (!fs.existsSync(runsDir)) throw new Error(`no agentbox runs found in ${runsDir}`);
+  const candidates = fs
+    .readdirSync(runsDir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => path.join(runsDir, entry.name))
+    .filter((runDir) => fs.existsSync(path.join(runDir, "run.json")))
+    .sort((a, b) => {
+      const aStat = fs.statSync(path.join(a, "run.json"));
+      const bStat = fs.statSync(path.join(b, "run.json"));
+      return bStat.mtimeMs - aStat.mtimeMs || path.basename(b).localeCompare(path.basename(a));
+    });
+  if (candidates.length === 0) throw new Error(`no agentbox runs found in ${runsDir}`);
+  return candidates[0]!;
 }

@@ -2,6 +2,8 @@
 import path from "node:path";
 import process from "node:process";
 import { Command } from "commander";
+import { createDemoRun } from "./demo.js";
+import { exportRun } from "./export.js";
 import { inspectRun, formatInspectionHuman } from "./inspect.js";
 import { recordRun } from "./recorder.js";
 import { renderRun } from "./render.js";
@@ -45,6 +47,27 @@ function buildProgram(): Command {
     .option("--no-color", "disable ANSI in agentbox stderr output");
 
   program
+    .command("demo")
+    .description("create and record a deterministic demo run")
+    .option("--out <dir>", "workspace directory for the demo run")
+    .action(async (_opts, cmd: Command) => {
+      const flags = mergeFlags(cmd);
+      const opts = cmd.opts<{ out?: string }>();
+      try {
+        const result = await createDemoRun({
+          outDir: opts.out ? resolveArg(opts.out, flags) : undefined,
+          quiet: flags.quiet,
+          jsonMode: flags.json,
+        });
+        if (flags.json) successJson(result);
+        else log(`agentbox demo replay: ${result.html}`, flags);
+        process.exit(result.run.exitCode ?? OK);
+      } catch (err) {
+        exitInternal(err, flags);
+      }
+    });
+
+  program
     .command("record")
     .description("record a terminal-based agent command")
     .argument("[command...]", "command to record after --")
@@ -74,6 +97,30 @@ function buildProgram(): Command {
           log(`\nagentbox replay: ${path.join(runDir, "agentbox-run.html")}`, flags);
         }
         process.exit(run.exitCode ?? OK);
+      } catch (err) {
+        exitInternal(err, flags);
+      }
+    });
+
+  program
+    .command("export")
+    .description("export a redacted shareable zip for a run")
+    .argument("<run>", "run directory, artifact path, or latest")
+    .option("--out <zip>", "zip file to write")
+    .option("--redact-pattern <regex>", "extra regex to redact from exported artifacts", collect, [])
+    .action((target: string, _opts, cmd: Command) => {
+      const flags = mergeFlags(cmd);
+      const opts = cmd.opts<{ out?: string; redactPattern: string[] }>();
+      try {
+        const exported = exportRun({
+          input: target,
+          cwd: resolveCwd(flags),
+          outPath: opts.out ? resolveArg(opts.out, flags) : undefined,
+          redactPatterns: opts.redactPattern,
+        });
+        if (flags.json) successJson(exported);
+        else log(`exported ${exported.zipPath}`, flags);
+        process.exit(OK);
       } catch (err) {
         exitInternal(err, flags);
       }
@@ -218,6 +265,13 @@ function agentCatalog() {
     ],
     commands: [
       {
+        name: "demo",
+        description: "Create a deterministic demo workspace and record a sample agent run.",
+        args: [],
+        flags: [{ name: "--out", type: "path" }],
+        returns: { run: "RunMetadata", workspace: "path", runDir: "path", html: "path" },
+      },
+      {
         name: "record",
         description: "Record a terminal-based agent command into .agentbox/runs/<run-id>.",
         args: [{ name: "command", required: true, type: "string[]" }],
@@ -226,6 +280,16 @@ function agentCatalog() {
           { name: "--redact-pattern", type: "regex", repeatable: true },
         ],
         returns: { run: "RunMetadata", runDir: "path", html: "path" },
+      },
+      {
+        name: "export",
+        description: "Export a redacted shareable zip for a run.",
+        args: [{ name: "run", required: true, type: "path|latest" }],
+        flags: [
+          { name: "--out", type: "path" },
+          { name: "--redact-pattern", type: "regex", repeatable: true },
+        ],
+        returns: { zipPath: "path", runId: "string", files: "string[]", redactions: "RedactionReport" },
       },
       {
         name: "render",
