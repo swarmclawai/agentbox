@@ -68,6 +68,10 @@ describe("render and inspect", () => {
     const inspection = inspectRun(paths.runDir);
 
     expect(html).toContain("AsciinemaPlayer.create");
+    expect(html).toContain("Timeline");
+    expect(html).toContain("idleTimeLimit: 2");
+    expect(html).toContain("fit: true");
+    expect(html).toContain("file-filter");
     expect(html).toContain("data:text/plain;base64");
     expect(html).toContain("file.txt");
     expect(inspection.run.id).toBe("run-test");

@@ -15,7 +15,7 @@ Coding agents now touch terminals, files, tools, and MCP servers. When a run suc
 ## 30-second demo
 
 ```bash
-npx @swarmclawai/agentbox@latest record -- node fixtures/fake-agent.js
+npx @swarmclawai/agentbox@latest demo
 ```
 
 Open the generated file:
@@ -48,10 +48,13 @@ npx @swarmclawai/agentbox@latest record -- <agent command>
 
 | Command | Purpose |
 |---|---|
+| `agentbox demo` | Create and record a deterministic sample run |
 | `agentbox record -- <command...>` | Record a terminal-based agent run |
+| `agentbox export <run\|latest>` | Create a redacted zip for sharing |
 | `agentbox inspect <run>` | Summarize a recorded run |
 | `agentbox render <run>` | Regenerate `agentbox-run.html` |
 | `agentbox mcp-proxy --name <server> -- <server-command...>` | Log MCP stdio `tools/list` and `tools/call` |
+| `agentbox install --platform <name>` | Install platform instructions and lightweight hooks |
 | `agentbox --help-agents` | Print the machine-readable command catalog |
 
 Every data-returning command supports `--json` and emits one JSON line on stdout.
@@ -69,6 +72,31 @@ By default, `agentbox` captures terminal output and resize events. It does not s
 ```bash
 agentbox record --capture-input -- <agent command>
 ```
+
+## Sharing a run
+
+Create a local, redacted zip from the latest run:
+
+```bash
+agentbox export latest
+```
+
+The zip includes `agentbox-run.html`, `run.json`, `terminal.cast`, `events.jsonl`, `diffs.json`, `SHARE.md`, and `manifest.json` with checksums. Review the bundle before posting it publicly.
+
+## Agent integrations
+
+Install lightweight instructions and hooks for your agent platform:
+
+```bash
+agentbox install --platform codex
+agentbox claude install
+agentbox opencode install
+agentbox gemini install
+```
+
+Supported platforms mirror the SwarmVault/Graphify coverage: Claude Code, Codex, OpenCode, GitHub Copilot CLI, VS Code Copilot Chat, Aider, OpenClaw, Factory Droid, Trae, Trae CN, Cursor, Gemini CLI, Hermes, Kiro, Google Antigravity, and Windows Claude Code.
+
+Hook-capable platforms log tool payload summaries into the active run when `AGENTBOX_RUN_DIR` is set. Platforms without hook support receive always-on project instructions that point users at `agentbox record`, `agentbox inspect latest`, and `agentbox export latest`.
 
 ## MCP logging
 
@@ -108,6 +136,19 @@ Then run your agent through `agentbox record`. MCP events appear in the replay's
 ```
 
 The HTML replay is self-contained and can be opened locally without a dev server.
+
+## GitHub Actions
+
+Use the bundled action to preserve a replay for CI jobs:
+
+```yaml
+- uses: swarmclawai/agentbox@v0.2.0
+  with:
+    command: pnpm test
+    artifact-name: agentbox-test-run
+```
+
+The action records the command, exports a redacted zip, and uploads it with `actions/upload-artifact`.
 
 ## Redaction
 

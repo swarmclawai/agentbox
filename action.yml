@@ -1,0 +1,39 @@
+name: Agentbox Record
+description: Record a command with Agentbox, export a redacted zip, and upload it as a workflow artifact.
+
+inputs:
+  command:
+    description: Command to record, for example "pnpm test".
+    required: true
+  working-directory:
+    description: Directory where the command should run.
+    required: false
+    default: "."
+  artifact-name:
+    description: Name for the uploaded Agentbox artifact.
+    required: false
+    default: agentbox-run
+  retention-days:
+    description: Artifact retention period in days.
+    required: false
+    default: "14"
+
+runs:
+  using: composite
+  steps:
+    - name: Record command
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: npx @swarmclawai/agentbox@latest record -- ${{ inputs.command }}
+
+    - name: Export latest Agentbox run
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: npx @swarmclawai/agentbox@latest export latest --out "$RUNNER_TEMP/agentbox-run.zip"
+
+    - name: Upload Agentbox artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: ${{ runner.temp }}/agentbox-run.zip
+        retention-days: ${{ inputs.retention-days }}

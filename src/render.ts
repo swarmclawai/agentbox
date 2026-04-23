@@ -59,12 +59,14 @@ export function renderRunHtml(paths: RunPaths): string {
     <div id="terminal"></div>
   </section>
   <nav class="tabs" aria-label="Replay sections">
-    <button class="tab active" data-tab="files">Files</button>
+    <button class="tab active" data-tab="timeline">Timeline</button>
+    <button class="tab" data-tab="files">Files</button>
     <button class="tab" data-tab="mcp">MCP</button>
     <button class="tab" data-tab="risks">Risks</button>
     <button class="tab" data-tab="metadata">Metadata</button>
   </nav>
-  <section id="panel-files" class="panel active"></section>
+  <section id="panel-timeline" class="panel active"></section>
+  <section id="panel-files" class="panel"></section>
   <section id="panel-mcp" class="panel"></section>
   <section id="panel-risks" class="panel"></section>
   <section id="panel-metadata" class="panel"></section>
@@ -240,6 +242,37 @@ main { padding: 1rem 1.5rem 2rem; }
   font-size: .9rem;
 }
 .table th { color: var(--muted); font-weight: 600; background: #fafaf8; }
+.toolbar {
+  display: flex;
+  gap: .75rem;
+  align-items: center;
+  margin-bottom: .75rem;
+}
+.file-filter {
+  width: min(28rem, 100%);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: .55rem .65rem;
+  font: inherit;
+  background: var(--surface);
+  color: var(--ink);
+}
+details {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  margin-bottom: .6rem;
+  overflow: hidden;
+}
+summary {
+  cursor: pointer;
+  padding: .65rem .75rem;
+  font-weight: 600;
+}
+details pre {
+  margin: 0;
+  border-radius: 0;
+}
 pre {
   margin: .75rem 0 1rem;
   padding: .8rem;
@@ -272,7 +305,9 @@ AsciinemaPlayer.create(window.__AGENTBOX_CAST_URL__, document.getElementById('te
   preload: true,
   cols: data.run.terminal.cols,
   rows: data.run.terminal.rows,
-  fit: false
+  fit: true,
+  idleTimeLimit: 2,
+  poster: posterText()
 });
 
 for (const button of document.querySelectorAll('.tab')) {
@@ -288,18 +323,55 @@ const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (ch) => ({
   '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
 })[ch]);
 
-function renderFiles() {
+function posterText() {
+  const exit = data.run.exitCode ?? 'unknown';
+  return 'data:text/plain,' + encodeURIComponent('agentbox replay\\n' + data.run.command.join(' ') + '\\nexit ' + exit);
+}
+
+function renderTimeline() {
+  const panel = document.getElementById('panel-timeline');
+  const rows = [];
+  rows.push({ time: data.run.startedAt, type: 'run', detail: 'started ' + data.run.command.join(' ') });
+  for (const event of data.events || []) rows.push({
+    time: event.time,
+    type: event.type,
+    detail: summarizeEvent(event)
+  });
+  for (const file of data.files.files || []) rows.push({
+    time: data.run.endedAt || data.run.startedAt,
+    type: 'file',
+    detail: file.status + ' ' + file.path
+  });
+  if (data.run.endedAt) rows.push({ time: data.run.endedAt, type: 'run', detail: 'ended with exit ' + (data.run.exitCode ?? 'unknown') });
+  rows.sort((a, b) => String(a.time).localeCompare(String(b.time)));
+  panel.innerHTML = '<table class="table"><thead><tr><th>Time</th><th>Type</th><th>Event</th></tr></thead><tbody>' +
+    rows.map((row) => '<tr><td>' + esc(row.time) + '</td><td>' + esc(row.type) + '</td><td>' + esc(row.detail) + '</td></tr>').join('') +
+    '</tbody></table>';
+}
+
+function summarizeEvent(event) {
+  const value = event.data || {};
+  if (event.type === 'mcp') return [value.server, value.method, value.toolName].filter(Boolean).join(' ');
+  if (event.type === 'tool') return [value.platform, value.eventName, value.toolName].filter(Boolean).join(' ');
+  if (event.type === 'risk') return [value.severity, value.code, value.source].filter(Boolean).join(' ');
+  if (event.type === 'run') return value.phase || 'run event';
+  return JSON.stringify(value).slice(0, 180);
+}
+
+function renderFiles(filter = '') {
   const panel = document.getElementById('panel-files');
+  const files = (data.files.files || []).filter((file) => file.path.toLowerCase().includes(filter.toLowerCase()));
   if (!data.files.files.length) {
     panel.innerHTML = '<div class="empty">No file changes captured.</div>';
     return;
   }
-  panel.innerHTML = '<table class="table"><thead><tr><th>Status</th><th>Path</th><th>Details</th></tr></thead><tbody>' +
-    data.files.files.map((file) =>
-      '<tr><td>' + esc(file.status) + '</td><td>' + esc(file.path) + '</td><td>' +
-      (file.binary ? 'binary ' : '') + (file.oversized ? 'oversized' : '') + '</td></tr>' +
-      (file.diff ? '<tr><td colspan="3"><pre>' + esc(file.diff) + '</pre></td></tr>' : '')
-    ).join('') + '</tbody></table>';
+  panel.innerHTML = '<div class="toolbar"><input id="file-filter" class="file-filter" placeholder="Filter files" value="' + esc(filter) + '" /></div>' +
+    (files.length ? files.map((file) =>
+      '<details><summary>' + esc(file.status) + ' ' + esc(file.path) +
+      ((file.binary || file.oversized) ? ' · ' + esc([file.binary ? 'binary' : '', file.oversized ? 'oversized' : ''].filter(Boolean).join(' ')) : '') +
+      '</summary>' + (file.diff ? '<pre>' + esc(file.diff) + '</pre>' : '<div class="empty">No text diff captured.</div>') + '</details>'
+    ).join('') : '<div class="empty">No files match the current filter.</div>');
+  document.getElementById('file-filter')?.addEventListener('input', (event) => renderFiles(event.target.value));
 }
 
 function renderMcp() {
@@ -333,6 +405,7 @@ function renderMetadata() {
   document.getElementById('panel-metadata').innerHTML = '<pre>' + esc(JSON.stringify(data.run, null, 2)) + '</pre>';
 }
 
+renderTimeline();
 renderFiles();
 renderMcp();
 renderRisks();
