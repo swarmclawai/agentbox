@@ -1,5 +1,5 @@
 name: Agentbox Record
-description: Record a command with Agentbox, export a redacted zip, and upload it as a workflow artifact.
+description: Record a command with Agentbox, export a redacted zip, and publish a CI report.
 
 inputs:
   command:
@@ -17,23 +17,105 @@ inputs:
     description: Artifact retention period in days.
     required: false
     default: "14"
+  agentbox-package:
+    description: npm package spec to execute.
+    required: false
+    default: "@swarmclawai/agentbox@latest"
+  summary:
+    description: Write the Agentbox Markdown report to the GitHub job summary.
+    required: false
+    default: "true"
+  comment-pr:
+    description: Update a pull request comment with the Agentbox report.
+    required: false
+    default: "false"
+  fail-on-risk:
+    description: Fail a successful command when risks at this severity or higher are detected. Use off, high, medium, or low.
+    required: false
+    default: "off"
+  capture-input:
+    description: Store typed input in terminal.cast.
+    required: false
+    default: "false"
+  redact-patterns:
+    description: Newline-separated regex patterns to redact from recorded and exported artifacts.
+    required: false
+    default: ""
+
+outputs:
+  run-id:
+    description: Agentbox run id.
+    value: ${{ steps.record.outputs.run-id }}
+  html-path:
+    description: Local path to the generated replay HTML.
+    value: ${{ steps.record.outputs.html-path }}
+  zip-path:
+    description: Local path to the exported replay zip.
+    value: ${{ steps.record.outputs.zip-path }}
+  artifact-url:
+    description: GitHub Actions artifact URL for the replay zip.
+    value: ${{ steps.upload.outputs.artifact-url }}
+  artifact-digest:
+    description: SHA-256 digest reported by actions/upload-artifact.
+    value: ${{ steps.upload.outputs.artifact-digest }}
+  exit-code:
+    description: Exit code from the recorded command.
+    value: ${{ steps.record.outputs.exit-code }}
+  risk-gate-failed:
+    description: Whether fail-on-risk matched the run.
+    value: ${{ steps.publish.outputs.risk-gate-failed }}
 
 runs:
   using: composite
   steps:
     - name: Record command
+      id: record
       shell: bash
       working-directory: ${{ inputs.working-directory }}
-      run: npx @swarmclawai/agentbox@latest record -- ${{ inputs.command }}
-
-    - name: Export latest Agentbox run
-      shell: bash
-      working-directory: ${{ inputs.working-directory }}
-      run: npx @swarmclawai/agentbox@latest export latest --out "$RUNNER_TEMP/agentbox-run.zip"
+      env:
+        AGENTBOX_COMMAND: ${{ inputs.command }}
+        AGENTBOX_PACKAGE: ${{ inputs.agentbox-package }}
+        AGENTBOX_WORKING_DIRECTORY: ${{ inputs.working-directory }}
+        AGENTBOX_ARTIFACT_NAME: ${{ inputs.artifact-name }}
+        AGENTBOX_CAPTURE_INPUT: ${{ inputs.capture-input }}
+        AGENTBOX_REDACT_PATTERNS: ${{ inputs.redact-patterns }}
+      run: node "$GITHUB_ACTION_PATH/scripts/github-action.mjs" record
 
     - name: Upload Agentbox artifact
+      id: upload
+      if: ${{ always() && steps.record.outputs.zip-path != '' }}
       uses: actions/upload-artifact@v4
       with:
         name: ${{ inputs.artifact-name }}
-        path: ${{ runner.temp }}/agentbox-run.zip
+        path: ${{ steps.record.outputs.zip-path }}
         retention-days: ${{ inputs.retention-days }}
+
+    - name: Publish Agentbox report
+      id: publish
+      if: ${{ always() }}
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        AGENTBOX_PACKAGE: ${{ inputs.agentbox-package }}
+        AGENTBOX_WORKING_DIRECTORY: ${{ inputs.working-directory }}
+        AGENTBOX_SUMMARY: ${{ inputs.summary }}
+        AGENTBOX_COMMENT_PR: ${{ inputs.comment-pr }}
+        AGENTBOX_FAIL_ON_RISK: ${{ inputs.fail-on-risk }}
+        AGENTBOX_ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
+        AGENTBOX_ZIP_PATH: ${{ steps.record.outputs.zip-path }}
+        GITHUB_TOKEN: ${{ github.token }}
+      run: node "$GITHUB_ACTION_PATH/scripts/github-action.mjs" publish
+
+    - name: Complete Agentbox action
+      if: ${{ always() }}
+      shell: bash
+      run: |
+        exit_code="${{ steps.record.outputs.exit-code }}"
+        if [ -z "$exit_code" ]; then
+          exit_code=1
+        fi
+        if [ "${{ steps.publish.outputs.risk-gate-failed }}" = "true" ] && [ "$exit_code" = "0" ]; then
+          echo "Agentbox fail-on-risk matched recorded risk flags." >&2
+          exit 1
+        fi
+        exit "$exit_code"

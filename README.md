@@ -51,6 +51,7 @@ npx @swarmclawai/agentbox@latest record -- <agent command>
 | `agentbox demo` | Create and record a deterministic sample run |
 | `agentbox record -- <command...>` | Record a terminal-based agent run |
 | `agentbox export <run\|latest>` | Create a redacted zip for sharing |
+| `agentbox report <run\|latest>` | Create a Markdown report for local review or CI |
 | `agentbox inspect <run>` | Summarize a recorded run |
 | `agentbox render <run>` | Regenerate `agentbox-run.html` |
 | `agentbox mcp-proxy --name <server> -- <server-command...>` | Log MCP stdio `tools/list` and `tools/call` |
@@ -82,6 +83,15 @@ agentbox export latest
 ```
 
 The zip includes `agentbox-run.html`, `run.json`, `terminal.cast`, `events.jsonl`, `diffs.json`, `SHARE.md`, and `manifest.json` with checksums. Review the bundle before posting it publicly.
+
+Create a Markdown summary for the latest run:
+
+```bash
+agentbox report latest
+agentbox report latest --out agentbox-report.md
+```
+
+Reports include the command, exit code, duration, changed files, MCP/tool counts, risk flags, redactions, local replay path, export zip path, and artifact URL when supplied.
 
 ## Agent integrations
 
@@ -139,16 +149,42 @@ The HTML replay is self-contained and can be opened locally without a dev server
 
 ## GitHub Actions
 
-Use the bundled action to preserve a replay for CI jobs:
+Use the bundled action to preserve a replay for CI jobs and write an Agentbox report to the workflow summary:
 
 ```yaml
-- uses: swarmclawai/agentbox@v0.2.0
+- uses: swarmclawai/agentbox@v0.3.0
   with:
     command: pnpm test
     artifact-name: agentbox-test-run
 ```
 
-The action records the command, exports a redacted zip, and uploads it with `actions/upload-artifact`.
+The action records the command, exports a redacted zip, uploads it with `actions/upload-artifact`, and preserves the recorded command's exit code after reporting.
+
+PR comments are opt-in so default workflows do not need write-token permissions:
+
+```yaml
+permissions:
+  contents: read
+  pull-requests: write
+
+steps:
+  - uses: actions/checkout@v5
+  - uses: swarmclawai/agentbox@v0.3.0
+    with:
+      command: pnpm test
+      comment-pr: "true"
+```
+
+Risk gates are also opt-in:
+
+```yaml
+- uses: swarmclawai/agentbox@v0.3.0
+  with:
+    command: pnpm test
+    fail-on-risk: high
+```
+
+Use `fail-on-risk: medium` or `fail-on-risk: low` for stricter gates. Set newline-separated `redact-patterns` to apply custom redaction during recording and export.
 
 ## Redaction
 
