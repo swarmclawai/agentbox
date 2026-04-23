@@ -71,7 +71,6 @@ runs:
     - name: Record command
       id: record
       shell: bash
-      working-directory: ${{ inputs.working-directory }}
       env:
         AGENTBOX_COMMAND: ${{ inputs.command }}
         AGENTBOX_PACKAGE: ${{ inputs.agentbox-package }}
@@ -94,7 +93,6 @@ runs:
       id: publish
       if: ${{ always() }}
       shell: bash
-      working-directory: ${{ inputs.working-directory }}
       env:
         AGENTBOX_PACKAGE: ${{ inputs.agentbox-package }}
         AGENTBOX_WORKING_DIRECTORY: ${{ inputs.working-directory }}

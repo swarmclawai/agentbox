@@ -102,8 +102,12 @@ export function parseJsonEnvelope(stdout) {
   return parsed.data;
 }
 
+export function resolveWorkingDirectory(value = "") {
+  return path.resolve(value || process.cwd());
+}
+
 async function recordMode(env) {
-  const cwd = path.resolve(env.AGENTBOX_WORKING_DIRECTORY || process.cwd());
+  const cwd = resolveWorkingDirectory(env.AGENTBOX_WORKING_DIRECTORY);
   const packageSpec = env.AGENTBOX_PACKAGE || DEFAULT_PACKAGE;
   const tempDir = env.RUNNER_TEMP || os.tmpdir();
   const zipPath =
@@ -133,7 +137,7 @@ async function recordMode(env) {
 }
 
 async function publishMode(env) {
-  const cwd = path.resolve(env.AGENTBOX_WORKING_DIRECTORY || process.cwd());
+  const cwd = resolveWorkingDirectory(env.AGENTBOX_WORKING_DIRECTORY);
   const packageSpec = env.AGENTBOX_PACKAGE || DEFAULT_PACKAGE;
   const report = runAgentbox(packageSpec, buildReportArgs(env), { cwd, stdio: "pipe" });
   let summary;
@@ -173,7 +177,7 @@ function commentOnPullRequest(markdown, env) {
   const tempFile = path.join(env.RUNNER_TEMP || os.tmpdir(), "agentbox-pr-comment.md");
   fs.writeFileSync(tempFile, markdown);
   const result = spawnSync("gh", ["pr", "comment", String(prNumber), "--body-file", tempFile, "--edit-last", "--create-if-none"], {
-    cwd: env.AGENTBOX_WORKING_DIRECTORY || process.cwd(),
+    cwd: resolveWorkingDirectory(env.AGENTBOX_WORKING_DIRECTORY),
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
     env: {

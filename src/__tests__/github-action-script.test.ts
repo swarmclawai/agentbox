@@ -19,6 +19,7 @@ describe("GitHub Action support script", () => {
     const script = await loadScript();
 
     expect(script.parseRedactPatterns("\nONE\n TWO \n\n")).toEqual(["ONE", "TWO"]);
+    expect(script.resolveWorkingDirectory("subdir")).toBe(path.join(process.cwd(), "subdir"));
     expect(
       script.buildRecordArgs({
         AGENTBOX_COMMAND: "pnpm test",
