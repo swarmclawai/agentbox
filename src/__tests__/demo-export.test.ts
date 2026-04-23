@@ -29,7 +29,30 @@ describe("demo and export", () => {
     expect(fs.existsSync(path.join(result.runDir, "terminal.cast"))).toBe(true);
     expect(fs.existsSync(path.join(result.runDir, "events.jsonl"))).toBe(true);
     expect(fs.existsSync(path.join(result.runDir, "diffs.json"))).toBe(true);
+    expect(fs.existsSync(result.report)).toBe(true);
+    expect(fs.existsSync(result.zip)).toBe(true);
     expect(inspection.files.files.map((file) => file.path)).toContain("fixture-output.txt");
+  });
+
+  it("records a launch-ready failing scenario without failing demo creation", async () => {
+    const result = await createDemoRun({ outDir: tmp, quiet: true, scenario: "failure" });
+    const inspection = inspectRun("latest", result.workspace);
+
+    expect(result.scenario).toBe("failure");
+    expect(result.run.exitCode).toBe(1);
+    expect(fs.existsSync(result.report)).toBe(true);
+    expect(fs.existsSync(result.zip)).toBe(true);
+    expect(inspection.files.files.map((file) => file.path)).toContain("fixture-failure-report.txt");
+  });
+
+  it("records MCP and risk events for the mcp-risk scenario", async () => {
+    const result = await createDemoRun({ outDir: tmp, quiet: true, scenario: "mcp-risk" });
+    const inspection = inspectRun("latest", result.workspace);
+
+    expect(result.run.exitCode).toBe(0);
+    expect(inspection.mcpEvents).toHaveLength(1);
+    expect(inspection.run.mcp.tools).toContain("read_and_upload");
+    expect(inspection.run.risks.some((risk) => risk.code === "demo_mcp_exfiltration")).toBe(true);
   });
 
   it("exports the latest run as a redacted zip with a manifest", async () => {

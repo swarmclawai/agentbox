@@ -5,7 +5,7 @@ import { Command } from "commander";
 import { listRuns, type RunStatusFilter } from "./artifact.js";
 import { cleanRuns } from "./clean.js";
 import { compareRuns } from "./compare.js";
-import { createDemoRun } from "./demo.js";
+import { DEMO_SCENARIOS, createDemoRun, parseDemoScenario } from "./demo.js";
 import { exportRun } from "./export.js";
 import { logHookEvent, readStdinJson } from "./hook-log.js";
 import { installPlatform, PLATFORMS, uninstallPlatform } from "./install.js";
@@ -17,7 +17,7 @@ import { generateReport } from "./report.js";
 import { renderRun } from "./render.js";
 import { runMcpProxy } from "./mcp-proxy.js";
 
-const PKG_VERSION = "0.4.0";
+const PKG_VERSION = "0.4.1";
 const OK = 0;
 const USER_ERROR = 1;
 const INTERNAL_ERROR = 2;
@@ -146,18 +146,31 @@ function buildProgram(): Command {
     .command("demo")
     .description("create and record a deterministic demo run")
     .option("--out <dir>", "workspace directory for the demo run")
+    .option("--scenario <scenario>", `scenario: ${DEMO_SCENARIOS.join(", ")}`, "success")
     .action(async (_opts, cmd: Command) => {
       const flags = mergeFlags(cmd);
-      const opts = cmd.opts<{ out?: string }>();
+      const opts = cmd.opts<{ out?: string; scenario: string }>();
       try {
+        let scenario;
+        try {
+          scenario = parseDemoScenario(opts.scenario);
+        } catch (err) {
+          exitUser("E_INVALID_SCENARIO", err instanceof Error ? err.message : String(err), flags);
+          return;
+        }
         const result = await createDemoRun({
           outDir: opts.out ? resolveArg(opts.out, flags) : undefined,
           quiet: flags.quiet,
           jsonMode: flags.json,
+          scenario,
         });
         if (flags.json) successJson(result);
-        else log(`agentbox demo replay: ${result.html}`, flags);
-        process.exit(result.run.exitCode ?? OK);
+        else {
+          log(`agentbox demo replay: ${result.html}`, flags);
+          log(`agentbox demo report: ${result.report}`, flags);
+          log(`agentbox demo export: ${result.zip}`, flags);
+        }
+        process.exit(OK);
       } catch (err) {
         exitInternal(err, flags);
       }
@@ -575,10 +588,21 @@ function agentCatalog() {
       },
       {
         name: "demo",
-        description: "Create a deterministic demo workspace and record a sample agent run.",
+        description: "Create a deterministic demo workspace, replay, report, and export zip.",
         args: [],
-        flags: [{ name: "--out", type: "path" }],
-        returns: { run: "RunMetadata", workspace: "path", runDir: "path", html: "path" },
+        flags: [
+          { name: "--out", type: "path" },
+          { name: "--scenario", type: "enum", values: DEMO_SCENARIOS },
+        ],
+        returns: {
+          scenario: "success|failure|mcp-risk",
+          run: "RunMetadata",
+          workspace: "path",
+          runDir: "path",
+          html: "path",
+          report: "path",
+          zip: "path",
+        },
       },
       {
         name: "record",

@@ -21,10 +21,11 @@ I built Agentbox, a local-first recorder for terminal-based AI agent runs.
 
 You run:
 
+  agentbox demo --scenario mcp-risk
   agentbox record -- <agent command>
   agentbox library --open
 
-It writes self-contained HTML replays with terminal output, file diffs, MCP tool calls, redactions, and risk flags. The terminal recording is asciicast v2, and everything stays local by default.
+It writes self-contained HTML replays with terminal output, file diffs, MCP tool calls, redactions, risk flags, Markdown reports, and redacted export zips. The terminal recording is asciicast v2, and everything stays local by default.
 
 The motivation: agents are getting access to terminals, files, browsers, and MCP tools, but debugging a surprising run still feels like reconstructing a story from scrollback and Git diff.
 ```
@@ -37,6 +38,7 @@ New OSS project: Agentbox.
 Black box footage for your AI agent.
 
 agentbox record -- <agent command>
+agentbox demo --scenario failure
 agentbox library --open
 
 You get local HTML replays with:
@@ -45,6 +47,7 @@ You get local HTML replays with:
 - MCP tool calls
 - redactions
 - risk flags
+- reports and shareable export zips
 - searchable run history
 
 No cloud trace service. No framework instrumentation.

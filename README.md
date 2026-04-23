@@ -16,12 +16,16 @@ Coding agents now touch terminals, files, tools, and MCP servers. When a run suc
 
 ```bash
 npx @swarmclawai/agentbox@latest demo
+npx @swarmclawai/agentbox@latest demo --scenario failure
+npx @swarmclawai/agentbox@latest demo --scenario mcp-risk
 ```
 
-Open the generated file:
+Each demo writes a replay, Markdown report, and redacted export zip:
 
 ```text
 .agentbox/runs/<run-id>/agentbox-run.html
+.agentbox/runs/<run-id>/REPORT.md
+.agentbox/runs/<run-id>/agentbox-<run-id>.zip
 ```
 
 The replay includes:
@@ -48,7 +52,7 @@ npx @swarmclawai/agentbox@latest record -- <agent command>
 
 | Command | Purpose |
 |---|---|
-| `agentbox demo` | Create and record a deterministic sample run |
+| `agentbox demo --scenario success\|failure\|mcp-risk` | Create a deterministic replay, report, and export zip |
 | `agentbox record -- <command...>` | Record a terminal-based agent run |
 | `agentbox export <run\|latest>` | Create a redacted zip for sharing |
 | `agentbox report <run\|latest>` | Create a Markdown report for local review or CI |
@@ -188,7 +192,7 @@ The HTML replay is self-contained and can be opened locally without a dev server
 Use the bundled action to preserve a replay for CI jobs and write an Agentbox report to the workflow summary:
 
 ```yaml
-- uses: swarmclawai/agentbox@v0.4.0
+- uses: swarmclawai/agentbox@v0.4.1
   with:
     command: pnpm test
     artifact-name: agentbox-test-run
@@ -205,7 +209,7 @@ permissions:
 
 steps:
   - uses: actions/checkout@v5
-  - uses: swarmclawai/agentbox@v0.4.0
+  - uses: swarmclawai/agentbox@v0.4.1
     with:
       command: pnpm test
       comment-pr: "true"
@@ -214,7 +218,7 @@ steps:
 Risk gates are also opt-in:
 
 ```yaml
-- uses: swarmclawai/agentbox@v0.4.0
+- uses: swarmclawai/agentbox@v0.4.1
   with:
     command: pnpm test
     fail-on-risk: high
