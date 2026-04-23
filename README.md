@@ -52,6 +52,11 @@ npx @swarmclawai/agentbox@latest record -- <agent command>
 | `agentbox record -- <command...>` | Record a terminal-based agent run |
 | `agentbox export <run\|latest>` | Create a redacted zip for sharing |
 | `agentbox report <run\|latest>` | Create a Markdown report for local review or CI |
+| `agentbox list` | List local runs with status filters |
+| `agentbox library` | Generate a searchable local HTML run index |
+| `agentbox open <run\|latest\|library>` | Open a replay or the local run library |
+| `agentbox compare <base> <head>` | Compare two recorded runs |
+| `agentbox clean` | Safely delete old run directories |
 | `agentbox inspect <run>` | Summarize a recorded run |
 | `agentbox render <run>` | Regenerate `agentbox-run.html` |
 | `agentbox mcp-proxy --name <server> -- <server-command...>` | Log MCP stdio `tools/list` and `tools/call` |
@@ -92,6 +97,37 @@ agentbox report latest --out agentbox-report.md
 ```
 
 Reports include the command, exit code, duration, changed files, MCP/tool counts, risk flags, redactions, local replay path, export zip path, and artifact URL when supplied.
+
+## Managing runs
+
+List recent runs:
+
+```bash
+agentbox list
+agentbox list --status risky --limit 5
+```
+
+Open the latest replay or a searchable local library:
+
+```bash
+agentbox open latest
+agentbox library --open
+```
+
+Compare two runs by id, unique prefix, path, or `latest`:
+
+```bash
+agentbox compare 20260423120000-a1b2 20260423123000-c3d4
+agentbox compare 20260423120000-a1b2 latest --out agentbox-compare.md
+```
+
+Cleanups are conservative. Preview first, then confirm:
+
+```bash
+agentbox clean --keep 10 --dry-run
+agentbox clean --keep 10 --yes
+agentbox clean --before 30d --yes
+```
 
 ## Agent integrations
 
@@ -152,7 +188,7 @@ The HTML replay is self-contained and can be opened locally without a dev server
 Use the bundled action to preserve a replay for CI jobs and write an Agentbox report to the workflow summary:
 
 ```yaml
-- uses: swarmclawai/agentbox@v0.3.0
+- uses: swarmclawai/agentbox@v0.4.0
   with:
     command: pnpm test
     artifact-name: agentbox-test-run
@@ -169,7 +205,7 @@ permissions:
 
 steps:
   - uses: actions/checkout@v5
-  - uses: swarmclawai/agentbox@v0.3.0
+  - uses: swarmclawai/agentbox@v0.4.0
     with:
       command: pnpm test
       comment-pr: "true"
@@ -178,7 +214,7 @@ steps:
 Risk gates are also opt-in:
 
 ```yaml
-- uses: swarmclawai/agentbox@v0.3.0
+- uses: swarmclawai/agentbox@v0.4.0
   with:
     command: pnpm test
     fail-on-risk: high
