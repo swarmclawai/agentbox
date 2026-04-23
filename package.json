@@ -1,6 +1,6 @@
 {
   "name": "@swarmclawai/agentbox",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Local-first black box recorder for AI agent terminal runs: replay terminal output, file diffs, MCP calls, and risk flags.",
   "license": "MIT",
   "author": "SwarmClaw AI",

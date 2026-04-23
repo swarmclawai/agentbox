@@ -12,7 +12,7 @@ import { generateReport } from "./report.js";
 import { renderRun } from "./render.js";
 import { runMcpProxy } from "./mcp-proxy.js";
 
-const PKG_VERSION = "0.2.0";
+const PKG_VERSION = "0.3.0";
 const OK = 0;
 const USER_ERROR = 1;
 const INTERNAL_ERROR = 2;
