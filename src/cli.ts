@@ -8,6 +8,7 @@ import { logHookEvent, readStdinJson } from "./hook-log.js";
 import { installPlatform, PLATFORMS, uninstallPlatform } from "./install.js";
 import { inspectRun, formatInspectionHuman } from "./inspect.js";
 import { recordRun } from "./recorder.js";
+import { generateReport } from "./report.js";
 import { renderRun } from "./render.js";
 import { runMcpProxy } from "./mcp-proxy.js";
 
@@ -217,6 +218,46 @@ function buildProgram(): Command {
     });
 
   program
+    .command("report")
+    .description("create a Markdown report for a run")
+    .argument("<run>", "run directory, artifact path, or latest")
+    .option("--out <file>", "Markdown file to write")
+    .option("--artifact-url <url>", "GitHub Actions artifact URL to include")
+    .option("--zip <path>", "export zip path to include")
+    .option("--title <text>", "report title")
+    .option("--max-files <n>", "maximum changed files to include")
+    .option("--max-risks <n>", "maximum risk flags to include")
+    .action((target: string, _opts, cmd: Command) => {
+      const flags = mergeFlags(cmd);
+      const opts = cmd.opts<{
+        out?: string;
+        artifactUrl?: string;
+        zip?: string;
+        title?: string;
+        maxFiles?: string;
+        maxRisks?: string;
+      }>();
+      try {
+        const result = generateReport({
+          input: target,
+          cwd: resolveCwd(flags),
+          outPath: opts.out ? resolveArg(opts.out, flags) : undefined,
+          artifactUrl: opts.artifactUrl,
+          zipPath: opts.zip ? resolveArg(opts.zip, flags) : undefined,
+          title: opts.title,
+          maxFiles: parseOptionalLimit("max-files", opts.maxFiles),
+          maxRisks: parseOptionalLimit("max-risks", opts.maxRisks),
+        });
+        if (flags.json) successJson(result);
+        else if (result.outPath) log(`wrote ${result.outPath}`, flags);
+        else process.stdout.write(result.markdown);
+        process.exit(OK);
+      } catch (err) {
+        exitInternal(err, flags);
+      }
+    });
+
+  program
     .command("render")
     .description("regenerate agentbox-run.html for a run directory")
     .argument("<run>", "run directory or file inside it")
@@ -289,6 +330,13 @@ function buildProgram(): Command {
 function collect(value: string, previous: string[]): string[] {
   previous.push(value);
   return previous;
+}
+
+function parseOptionalLimit(name: string, value: string | undefined): number | undefined {
+  if (value == null) return undefined;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 0) throw new Error(`${name} must be a non-negative integer`);
+  return parsed;
 }
 
 function successJson(data: unknown): void {
@@ -411,6 +459,20 @@ function agentCatalog() {
           { name: "--redact-pattern", type: "regex", repeatable: true },
         ],
         returns: { zipPath: "path", runId: "string", files: "string[]", redactions: "RedactionReport" },
+      },
+      {
+        name: "report",
+        description: "Create a Markdown report for a run.",
+        args: [{ name: "run", required: true, type: "path|latest" }],
+        flags: [
+          { name: "--out", type: "path" },
+          { name: "--artifact-url", type: "url" },
+          { name: "--zip", type: "path" },
+          { name: "--title", type: "string" },
+          { name: "--max-files", type: "number" },
+          { name: "--max-risks", type: "number" },
+        ],
+        returns: { summary: "ReportSummary", markdown: "string", outPath: "path?" },
       },
       {
         name: "render",

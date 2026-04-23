@@ -6,6 +6,7 @@ export * from "./asciicast.js";
 export * from "./git-diff.js";
 export * from "./inspect.js";
 export * from "./render.js";
+export * from "./report.js";
 export * from "./recorder.js";
 export * from "./mcp-proxy.js";
 export * from "./demo.js";
