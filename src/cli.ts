@@ -1,0 +1,256 @@
+#!/usr/bin/env node
+import path from "node:path";
+import process from "node:process";
+import { Command } from "commander";
+import { inspectRun, formatInspectionHuman } from "./inspect.js";
+import { recordRun } from "./recorder.js";
+import { renderRun } from "./render.js";
+import { runMcpProxy } from "./mcp-proxy.js";
+
+const PKG_VERSION = "0.1.0";
+const OK = 0;
+const USER_ERROR = 1;
+const INTERNAL_ERROR = 2;
+
+interface GlobalFlags {
+  json?: boolean;
+  quiet?: boolean;
+  verbose?: boolean;
+  cwd?: string;
+  color?: boolean;
+}
+
+function main(): void {
+  if (process.argv.includes("--help-agents")) {
+    process.stdout.write(JSON.stringify(agentCatalog(), null, 2) + "\n");
+    process.exit(OK);
+  }
+
+  const program = buildProgram();
+  program.parseAsync(process.argv).catch((err) => {
+    exitInternal(err, {});
+  });
+}
+
+function buildProgram(): Command {
+  const program = new Command();
+  program
+    .name("agentbox")
+    .description("Black box footage for your AI agent.")
+    .version(PKG_VERSION)
+    .option("--json", "emit one-line machine-readable JSON on stdout")
+    .option("--quiet", "suppress progress logs on stderr")
+    .option("--verbose", "print verbose logs on stderr")
+    .option("--cwd <path>", "override working directory for relative paths")
+    .option("--no-color", "disable ANSI in agentbox stderr output");
+
+  program
+    .command("record")
+    .description("record a terminal-based agent command")
+    .argument("[command...]", "command to record after --")
+    .option("--capture-input", "store typed input in terminal.cast")
+    .option("--redact-pattern <regex>", "extra regex to redact from artifacts", collect, [])
+    .allowUnknownOption(true)
+    .action(async (command: string[], _opts, cmd: Command) => {
+      const flags = mergeFlags(cmd);
+      const opts = cmd.opts<{ captureInput?: boolean; redactPattern: string[] }>();
+      try {
+        if (command.length === 0) {
+          exitUser("E_MISSING_COMMAND", "record requires a command after --", flags);
+          return;
+        }
+        const run = await recordRun({
+          cwd: resolveCwd(flags),
+          command,
+          captureInput: opts.captureInput,
+          redactPatterns: opts.redactPattern,
+          quiet: flags.quiet,
+          jsonMode: flags.json,
+        });
+        const runDir = path.join(run.cwd, ".agentbox", "runs", run.id);
+        if (flags.json) {
+          successJson({ run, runDir, html: path.join(runDir, "agentbox-run.html") });
+        } else {
+          log(`\nagentbox replay: ${path.join(runDir, "agentbox-run.html")}`, flags);
+        }
+        process.exit(run.exitCode ?? OK);
+      } catch (err) {
+        exitInternal(err, flags);
+      }
+    });
+
+  program
+    .command("render")
+    .description("regenerate agentbox-run.html for a run directory")
+    .argument("<run>", "run directory or file inside it")
+    .action((target: string, _opts, cmd: Command) => {
+      const flags = mergeFlags(cmd);
+      try {
+        const html = renderRun(resolveArg(target, flags), resolveCwd(flags));
+        if (flags.json) successJson({ html });
+        else log(`rendered ${html}`, flags);
+        process.exit(OK);
+      } catch (err) {
+        exitInternal(err, flags);
+      }
+    });
+
+  program
+    .command("inspect")
+    .description("summarize a recorded run")
+    .argument("<run>", "run directory or file inside it")
+    .action((target: string, _opts, cmd: Command) => {
+      const flags = mergeFlags(cmd);
+      try {
+        const inspection = inspectRun(resolveArg(target, flags), resolveCwd(flags));
+        if (flags.json) successJson(inspection);
+        else process.stdout.write(formatInspectionHuman(inspection));
+        process.exit(OK);
+      } catch (err) {
+        exitInternal(err, flags);
+      }
+    });
+
+  program
+    .command("mcp-proxy")
+    .description("wrap an MCP stdio server and log tools/list + tools/call")
+    .requiredOption("--name <server>", "server name to use in logs")
+    .option("--redact-pattern <regex>", "extra regex to redact from MCP logs", collect, [])
+    .argument("[command...]", "MCP server command after --")
+    .allowUnknownOption(true)
+    .action(async (command: string[], _opts, cmd: Command) => {
+      const flags = mergeFlags(cmd);
+      const opts = cmd.opts<{ name: string; redactPattern: string[] }>();
+      try {
+        if (command.length === 0) {
+          exitUser("E_MISSING_COMMAND", "mcp-proxy requires a server command after --", flags);
+          return;
+        }
+        const code = await runMcpProxy({
+          name: opts.name,
+          command,
+          cwd: resolveCwd(flags),
+          redactPatterns: opts.redactPattern,
+        });
+        process.exit(code);
+      } catch (err) {
+        exitInternal(err, flags);
+      }
+    });
+
+  program
+    .command("help-agents")
+    .description("print the machine-readable command catalog")
+    .action(() => {
+      process.stdout.write(JSON.stringify(agentCatalog(), null, 2) + "\n");
+      process.exit(OK);
+    });
+
+  return program;
+}
+
+function collect(value: string, previous: string[]): string[] {
+  previous.push(value);
+  return previous;
+}
+
+function successJson(data: unknown): void {
+  process.stdout.write(JSON.stringify({ ok: true, data }) + "\n");
+}
+
+function errorJson(code: string, message: string, hint?: string): void {
+  process.stdout.write(
+    JSON.stringify({ ok: false, error: { code, message, ...(hint ? { hint } : {}) } }) + "\n"
+  );
+}
+
+function log(message: string, flags: GlobalFlags): void {
+  if (flags.quiet) return;
+  process.stderr.write(message + "\n");
+}
+
+function exitUser(code: string, message: string, flags: GlobalFlags, hint?: string): void {
+  if (flags.json) errorJson(code, message, hint);
+  else process.stderr.write(`error: ${message}${hint ? `\n${hint}` : ""}\n`);
+  process.exit(USER_ERROR);
+}
+
+function exitInternal(err: unknown, flags: GlobalFlags): never {
+  const message = err instanceof Error ? err.message : String(err);
+  if (flags.json) errorJson("E_INTERNAL", message);
+  else process.stderr.write(`error: ${message}\n`);
+  process.exit(INTERNAL_ERROR);
+}
+
+function mergeFlags(cmd: Command): GlobalFlags {
+  let current: Command | null = cmd;
+  const merged: Record<string, unknown> = {};
+  while (current) {
+    Object.assign(merged, current.opts());
+    current = current.parent;
+  }
+  return merged as GlobalFlags;
+}
+
+function resolveCwd(flags: GlobalFlags): string {
+  return flags.cwd ? path.resolve(flags.cwd) : process.cwd();
+}
+
+function resolveArg(input: string, flags: GlobalFlags): string {
+  return path.isAbsolute(input) ? input : path.resolve(resolveCwd(flags), input);
+}
+
+function agentCatalog() {
+  return {
+    name: "agentbox",
+    version: PKG_VERSION,
+    description: "Local-first black box recorder for AI agent terminal runs.",
+    jsonEnvelope: {
+      success: { ok: true, data: {} },
+      failure: { ok: false, error: { code: "E_CODE", message: "message", hint: "optional" } },
+    },
+    globalFlags: [
+      { name: "--json", type: "boolean", description: "emit one-line JSON on stdout" },
+      { name: "--quiet", type: "boolean", description: "suppress progress logs" },
+      { name: "--verbose", type: "boolean", description: "extra logs on stderr" },
+      { name: "--cwd", type: "path", description: "working directory for relative paths" },
+      { name: "--no-color", type: "boolean", description: "disable color in agentbox stderr output" },
+    ],
+    commands: [
+      {
+        name: "record",
+        description: "Record a terminal-based agent command into .agentbox/runs/<run-id>.",
+        args: [{ name: "command", required: true, type: "string[]" }],
+        flags: [
+          { name: "--capture-input", type: "boolean" },
+          { name: "--redact-pattern", type: "regex", repeatable: true },
+        ],
+        returns: { run: "RunMetadata", runDir: "path", html: "path" },
+      },
+      {
+        name: "render",
+        description: "Regenerate agentbox-run.html for a run.",
+        args: [{ name: "run", required: true, type: "path" }],
+        returns: { html: "path" },
+      },
+      {
+        name: "inspect",
+        description: "Summarize a run.",
+        args: [{ name: "run", required: true, type: "path" }],
+        returns: "RunInspection",
+      },
+      {
+        name: "mcp-proxy",
+        description: "Wrap an MCP stdio server and log tools/list and tools/call.",
+        args: [{ name: "command", required: true, type: "string[]" }],
+        flags: [
+          { name: "--name", type: "string", required: true },
+          { name: "--redact-pattern", type: "regex", repeatable: true },
+        ],
+        returns: "stdio JSON-RPC pass-through; logs to AGENTBOX_RUN_DIR/events.jsonl",
+      },
+    ],
+  };
+}
+
+main();

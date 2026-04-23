@@ -1,0 +1,6 @@
+node_modules
+dist
+.agentbox
+.DS_Store
+*.log
+coverage

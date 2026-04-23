@@ -1,0 +1,79 @@
+{
+  "name": "@swarmclawai/agentbox",
+  "version": "0.1.0",
+  "description": "Local-first black box recorder for AI agent terminal runs: replay terminal output, file diffs, MCP calls, and risk flags.",
+  "license": "MIT",
+  "author": "SwarmClaw AI",
+  "homepage": "https://github.com/swarmclawai/agentbox",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/swarmclawai/agentbox.git"
+  },
+  "bugs": {
+    "url": "https://github.com/swarmclawai/agentbox/issues"
+  },
+  "keywords": [
+    "ai-agents",
+    "coding-agents",
+    "agent-observability",
+    "terminal-recorder",
+    "asciinema",
+    "mcp",
+    "model-context-protocol",
+    "agent-cli",
+    "debugging",
+    "replay"
+  ],
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "agentbox": "./dist/cli.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "fixtures",
+    "README.md",
+    "CONTRIBUTING.md",
+    "AGENTS.md",
+    "LICENSE"
+  ],
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "pnpm run build && pnpm run test && pnpm run typecheck"
+  },
+  "dependencies": {
+    "asciinema-player": "^3.15.1",
+    "commander": "^14.0.3",
+    "node-pty": "^1.1.0",
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsup": "^8.5.0",
+    "typescript": "^5.9.3",
+    "vitest": "^2.1.9"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "node-pty"
+    ]
+  }
+}
