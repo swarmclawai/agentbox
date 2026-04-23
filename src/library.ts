@@ -70,25 +70,29 @@ function renderLibraryHtml(input: {
   runs: RunListEntry[];
   totals: LibraryTotals;
 }): string {
-  const data = input.runs.map((run) => ({
-    id: run.id,
-    status: run.status,
-    command: run.command.join(" "),
-    cwd: run.cwd,
-    startedAt: run.startedAt,
-    durationMs: run.durationMs,
-    exitCode: run.exitCode,
-    filesChanged: run.filesChanged,
-    riskCount: run.riskCount,
-    mcpCalls: run.mcpCalls,
-    toolEvents: run.toolEvents,
-    redactionCount: run.redactionCount,
-    valid: run.valid,
-    error: run.error,
-    replayHref: relativeHref(path.dirname(input.htmlPath), run.html),
-    reportHref: relativeHref(path.dirname(input.htmlPath), path.join(run.runDir, "agentbox-report.md")),
-    exportHref: relativeHref(path.dirname(input.htmlPath), path.join(run.runDir, `agentbox-${run.id}.zip`)),
-  }));
+  const data = input.runs.map((run) => {
+    const reportPath = path.join(run.runDir, "agentbox-report.md");
+    const exportPath = path.join(run.runDir, `agentbox-${run.id}.zip`);
+    return {
+      id: run.id,
+      status: run.status,
+      command: run.command.join(" "),
+      cwd: run.cwd,
+      startedAt: run.startedAt,
+      durationMs: run.durationMs,
+      exitCode: run.exitCode,
+      filesChanged: run.filesChanged,
+      riskCount: run.riskCount,
+      mcpCalls: run.mcpCalls,
+      toolEvents: run.toolEvents,
+      redactionCount: run.redactionCount,
+      valid: run.valid,
+      error: run.error,
+      replayHref: fs.existsSync(run.html) ? relativeHref(path.dirname(input.htmlPath), run.html) : undefined,
+      reportHref: fs.existsSync(reportPath) ? relativeHref(path.dirname(input.htmlPath), reportPath) : undefined,
+      exportHref: fs.existsSync(exportPath) ? relativeHref(path.dirname(input.htmlPath), exportPath) : undefined,
+    };
+  });
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -320,9 +324,17 @@ function render() {
       '<span>' + esc(run.riskCount) + ' risks</span><span>' + esc(run.mcpCalls) + ' MCP</span>' +
       '<span>' + esc(run.toolEvents) + ' tools</span><span>' + esc(run.redactionCount) + ' redactions</span></div></div>' +
       '<nav class="links" aria-label="Run links">' +
-      (run.valid ? '<a href="' + esc(run.replayHref) + '">Replay</a><a href="' + esc(run.reportHref) + '">Report</a><a href="' + esc(run.exportHref) + '">Export</a>' : '<span>' + esc(run.error) + '</span>') +
+      (run.valid ? renderLinks(run) : '<span>' + esc(run.error) + '</span>') +
       '</nav></article>';
   }).join('');
+}
+
+function renderLinks(run) {
+  const links = [];
+  if (run.replayHref) links.push('<a href="' + esc(run.replayHref) + '">Replay</a>');
+  if (run.reportHref) links.push('<a href="' + esc(run.reportHref) + '">Report</a>');
+  if (run.exportHref) links.push('<a href="' + esc(run.exportHref) + '">Export</a>');
+  return links.length ? links.join('') : '<span>No generated artifacts yet</span>';
 }
 
 search.addEventListener('input', render);

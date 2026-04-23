@@ -64,13 +64,14 @@ export function resolveRunPaths(cwd: string, runId: string): RunPaths {
 }
 
 export function runPathsForDir(runDir: string): RunPaths {
+  const absoluteRunDir = path.resolve(runDir);
   return {
-    runDir: path.resolve(runDir),
-    runJson: path.join(runDir, "run.json"),
-    terminalCast: path.join(runDir, "terminal.cast"),
-    eventsJsonl: path.join(runDir, "events.jsonl"),
-    diffsJson: path.join(runDir, "diffs.json"),
-    html: path.join(runDir, "agentbox-run.html"),
+    runDir: absoluteRunDir,
+    runJson: path.join(absoluteRunDir, "run.json"),
+    terminalCast: path.join(absoluteRunDir, "terminal.cast"),
+    eventsJsonl: path.join(absoluteRunDir, "events.jsonl"),
+    diffsJson: path.join(absoluteRunDir, "diffs.json"),
+    html: path.join(absoluteRunDir, "agentbox-run.html"),
   };
 }
 

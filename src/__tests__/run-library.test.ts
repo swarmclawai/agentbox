@@ -186,6 +186,7 @@ function writeRun(
   fs.writeFileSync(paths.diffsJson, JSON.stringify(metadata.files, null, 2) + "\n");
   fs.writeFileSync(paths.terminalCast, '{"version":2,"width":80,"height":24}\n');
   fs.writeFileSync(paths.eventsJsonl, "");
+  fs.writeFileSync(paths.html, "<!doctype html><title>Replay</title>");
   appendEvent(paths, {
     type: "run",
     time: metadata.startedAt,
