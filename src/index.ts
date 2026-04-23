@@ -10,3 +10,5 @@ export * from "./recorder.js";
 export * from "./mcp-proxy.js";
 export * from "./demo.js";
 export * from "./export.js";
+export * from "./hook-log.js";
+export * from "./install.js";

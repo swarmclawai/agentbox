@@ -18,6 +18,7 @@ import {
   type RedactionReport,
   type RiskFlag,
   type RunMetadata,
+  type ToolLogEvent,
 } from "./types.js";
 
 const require = createRequire(import.meta.url);
@@ -162,8 +163,16 @@ export async function recordRun(options: RecordRunOptions): Promise<RunMetadata>
   const mcpEvents = events
     .filter((event) => event.type === "mcp")
     .map((event) => event.data as McpLogEvent);
+  const toolEvents = events
+    .filter((event) => event.type === "tool")
+    .map((event) => event.data as ToolLogEvent);
+  const riskEvents = events
+    .filter((event) => event.type === "risk")
+    .map((event) => event.data as RiskFlag);
   const mcpRisks = mcpEvents.flatMap((event) => event.risks);
-  risks.push(...mcpRisks);
+  const toolRisks = toolEvents.flatMap((event) => event.risks);
+  for (const event of toolEvents) redactions = mergeRedactionReports(redactions, event.redactions);
+  risks.push(...mcpRisks, ...toolRisks, ...riskEvents);
 
   metadata = {
     ...metadata,

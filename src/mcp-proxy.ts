@@ -11,6 +11,7 @@ import {
   type RedactionReport,
   type RiskFlag,
   type RunMetadata,
+  type ToolAnnotations,
 } from "./types.js";
 
 interface PendingMcpRequest {
@@ -31,6 +32,7 @@ export interface McpProxyLoggerOptions {
 
 export class McpProxyLogger {
   private readonly pending = new Map<string, PendingMcpRequest>();
+  private readonly tools = new Map<string, ToolAnnotations>();
   private redactions: RedactionReport = { total: 0, matches: [] };
   private readonly rules: RedactionRule[];
 
@@ -72,8 +74,13 @@ export class McpProxyLogger {
     this.pending.delete(String(id));
 
     const resultSummary = this.summarize(message.result ?? message.error ?? {});
+    if (pending.method === "tools/list") this.cacheToolAnnotations(resultSummary);
     const riskText = JSON.stringify(resultSummary);
-    const risks = detectRisks(riskText, `mcp:${pending.server}:${pending.method}`);
+    const annotations = pending.toolName ? this.tools.get(pending.toolName) : undefined;
+    const risks = [
+      ...detectRisks(riskText, `mcp:${pending.server}:${pending.method}`),
+      ...detectToolRisks(pending.server, pending.toolName, annotations),
+    ];
     const event: McpLogEvent = {
       server: pending.server,
       method: pending.method,
@@ -84,6 +91,7 @@ export class McpProxyLogger {
       durationMs: Date.now() - pending.startMs,
       argumentsSummary: pending.argumentsSummary,
       resultSummary,
+      toolAnnotations: annotations,
       risks,
     };
     this.opts.append(event);
@@ -98,6 +106,15 @@ export class McpProxyLogger {
       return JSON.parse(redacted.text);
     } catch {
       return redacted.text;
+    }
+  }
+
+  private cacheToolAnnotations(value: unknown): void {
+    if (!isObject(value) || !Array.isArray(value.tools)) return;
+    for (const tool of value.tools) {
+      if (!isObject(tool) || typeof tool.name !== "string") continue;
+      const annotations = isObject(tool.annotations) ? readToolAnnotations(tool.annotations) : {};
+      this.tools.set(tool.name, annotations);
     }
   }
 }
@@ -223,4 +240,51 @@ function toolNameFromListResult(result: unknown): string | undefined {
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function readToolAnnotations(value: Record<string, unknown>): ToolAnnotations {
+  return {
+    ...(typeof value.title === "string" ? { title: value.title } : {}),
+    ...(typeof value.readOnlyHint === "boolean" ? { readOnlyHint: value.readOnlyHint } : {}),
+    ...(typeof value.destructiveHint === "boolean" ? { destructiveHint: value.destructiveHint } : {}),
+    ...(typeof value.idempotentHint === "boolean" ? { idempotentHint: value.idempotentHint } : {}),
+    ...(typeof value.openWorldHint === "boolean" ? { openWorldHint: value.openWorldHint } : {}),
+  };
+}
+
+function detectToolRisks(
+  server: string,
+  toolName: string | undefined,
+  annotations: ToolAnnotations | undefined
+): RiskFlag[] {
+  if (!toolName) return [];
+  const source = `mcp:${server}:tools/call:${toolName}`;
+  if (!annotations) {
+    return [
+      {
+        code: "mcp_tool_unannotated",
+        severity: "low",
+        message: "MCP tool call had no cached tool annotations; review behavior manually.",
+        source,
+      },
+    ];
+  }
+  const risks: RiskFlag[] = [];
+  if (annotations.destructiveHint === true && annotations.readOnlyHint !== true) {
+    risks.push({
+      code: "mcp_tool_destructive",
+      severity: "medium",
+      message: "MCP tool is annotated as potentially destructive; annotations are untrusted hints.",
+      source,
+    });
+  }
+  if (annotations.openWorldHint === true) {
+    risks.push({
+      code: "mcp_tool_open_world",
+      severity: "medium",
+      message: "MCP tool is annotated as interacting with external entities; annotations are untrusted hints.",
+      source,
+    });
+  }
+  return risks;
 }

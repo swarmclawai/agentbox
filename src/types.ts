@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 export type Severity = "low" | "medium" | "high";
 
@@ -52,6 +52,14 @@ export interface McpSummary {
   tools: string[];
 }
 
+export interface ToolAnnotations {
+  title?: string;
+  readOnlyHint?: boolean;
+  destructiveHint?: boolean;
+  idempotentHint?: boolean;
+  openWorldHint?: boolean;
+}
+
 export interface RunMetadata {
   schemaVersion: number;
   id: string;
@@ -70,9 +78,19 @@ export interface RunMetadata {
 }
 
 export interface AgentboxEvent {
-  type: "run" | "mcp" | "risk" | "file" | "note";
+  type: "run" | "mcp" | "risk" | "file" | "note" | "tool";
   time: string;
   data: unknown;
+}
+
+export interface ToolLogEvent {
+  platform: string;
+  eventName?: string;
+  toolName?: string;
+  observedAt: string;
+  inputSummary: unknown;
+  risks: RiskFlag[];
+  redactions: RedactionReport;
 }
 
 export interface McpLogEvent {
@@ -85,5 +103,6 @@ export interface McpLogEvent {
   durationMs?: number;
   argumentsSummary?: unknown;
   resultSummary?: unknown;
+  toolAnnotations?: ToolAnnotations;
   risks: RiskFlag[];
 }

@@ -4,6 +4,8 @@ import process from "node:process";
 import { Command } from "commander";
 import { createDemoRun } from "./demo.js";
 import { exportRun } from "./export.js";
+import { logHookEvent, readStdinJson } from "./hook-log.js";
+import { installPlatform, PLATFORMS, uninstallPlatform } from "./install.js";
 import { inspectRun, formatInspectionHuman } from "./inspect.js";
 import { recordRun } from "./recorder.js";
 import { renderRun } from "./render.js";
@@ -45,6 +47,94 @@ function buildProgram(): Command {
     .option("--verbose", "print verbose logs on stderr")
     .option("--cwd <path>", "override working directory for relative paths")
     .option("--no-color", "disable ANSI in agentbox stderr output");
+
+  program
+    .command("install")
+    .description("install Agentbox instructions and hooks for an agent platform")
+    .requiredOption("--platform <platform>", `platform: ${PLATFORMS.join(", ")}`)
+    .action((_opts, cmd: Command) => {
+      const flags = mergeFlags(cmd);
+      const opts = cmd.opts<{ platform: string }>();
+      try {
+        const result = installPlatform({ platform: opts.platform, projectDir: resolveCwd(flags) });
+        if (flags.json) successJson(result);
+        else log(formatChanged(result.action, result.platform, result.changed), flags);
+        process.exit(OK);
+      } catch (err) {
+        exitInternal(err, flags);
+      }
+    });
+
+  program
+    .command("uninstall")
+    .description("remove Agentbox instructions and hooks for an agent platform")
+    .requiredOption("--platform <platform>", `platform: ${PLATFORMS.join(", ")}`)
+    .action((_opts, cmd: Command) => {
+      const flags = mergeFlags(cmd);
+      const opts = cmd.opts<{ platform: string }>();
+      try {
+        const result = uninstallPlatform({ platform: opts.platform, projectDir: resolveCwd(flags) });
+        if (flags.json) successJson(result);
+        else log(formatChanged(result.action, result.platform, result.changed), flags);
+        process.exit(OK);
+      } catch (err) {
+        exitInternal(err, flags);
+      }
+    });
+
+  for (const platform of PLATFORMS) {
+    const platformCommand = program.command(platform).description(`${platform} integration helpers`);
+    platformCommand
+      .command("install")
+      .description(`install Agentbox for ${platform}`)
+      .action((_opts, cmd: Command) => {
+        const flags = mergeFlags(cmd);
+        try {
+          const result = installPlatform({ platform, projectDir: resolveCwd(flags) });
+          if (flags.json) successJson(result);
+          else log(formatChanged(result.action, result.platform, result.changed), flags);
+          process.exit(OK);
+        } catch (err) {
+          exitInternal(err, flags);
+        }
+      });
+    platformCommand
+      .command("uninstall")
+      .description(`uninstall Agentbox for ${platform}`)
+      .action((_opts, cmd: Command) => {
+        const flags = mergeFlags(cmd);
+        try {
+          const result = uninstallPlatform({ platform, projectDir: resolveCwd(flags) });
+          if (flags.json) successJson(result);
+          else log(formatChanged(result.action, result.platform, result.changed), flags);
+          process.exit(OK);
+        } catch (err) {
+          exitInternal(err, flags);
+        }
+      });
+  }
+
+  program
+    .command("hook-log")
+    .description("record an agent hook payload into the current Agentbox run")
+    .requiredOption("--platform <platform>", "agent platform name")
+    .option("--redact-pattern <regex>", "extra regex to redact from hook payloads", collect, [])
+    .action(async (_opts, cmd: Command) => {
+      const flags = mergeFlags(cmd);
+      const opts = cmd.opts<{ platform: string; redactPattern: string[] }>();
+      try {
+        const input = await readStdinJson();
+        const result = await logHookEvent({
+          platform: opts.platform,
+          input,
+          redactPatterns: opts.redactPattern,
+        });
+        if (flags.json) successJson(result);
+        process.exit(OK);
+      } catch (err) {
+        exitInternal(err, flags);
+      }
+    });
 
   program
     .command("demo")
@@ -216,6 +306,13 @@ function log(message: string, flags: GlobalFlags): void {
   process.stderr.write(message + "\n");
 }
 
+function formatChanged(action: string, platform: string, changed: string[]): string {
+  const lines = [`agentbox ${action} ${platform}`];
+  if (changed.length === 0) lines.push("no changes");
+  else lines.push(...changed.map((file) => `changed ${file}`));
+  return lines.join("\n");
+}
+
 function exitUser(code: string, message: string, flags: GlobalFlags, hint?: string): void {
   if (flags.json) errorJson(code, message, hint);
   else process.stderr.write(`error: ${message}${hint ? `\n${hint}` : ""}\n`);
@@ -264,6 +361,30 @@ function agentCatalog() {
       { name: "--no-color", type: "boolean", description: "disable color in agentbox stderr output" },
     ],
     commands: [
+      {
+        name: "install",
+        description: "Install Agentbox instructions and hooks for a platform.",
+        args: [],
+        flags: [{ name: "--platform", type: "string", required: true }],
+        returns: { platform: "string", action: "install", changed: "path[]" },
+      },
+      {
+        name: "uninstall",
+        description: "Remove Agentbox instructions and hooks for a platform.",
+        args: [],
+        flags: [{ name: "--platform", type: "string", required: true }],
+        returns: { platform: "string", action: "uninstall", changed: "path[]" },
+      },
+      {
+        name: "hook-log",
+        description: "Record an agent hook payload into AGENTBOX_RUN_DIR/events.jsonl.",
+        args: [],
+        flags: [
+          { name: "--platform", type: "string", required: true },
+          { name: "--redact-pattern", type: "regex", repeatable: true },
+        ],
+        returns: { logged: "boolean", runDir: "path?", risks: "number", redactions: "RedactionReport" },
+      },
       {
         name: "demo",
         description: "Create a deterministic demo workspace and record a sample agent run.",
