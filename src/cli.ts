@@ -2,17 +2,22 @@
 import path from "node:path";
 import process from "node:process";
 import { Command } from "commander";
+import { listRuns, type RunStatusFilter } from "./artifact.js";
+import { cleanRuns } from "./clean.js";
+import { compareRuns } from "./compare.js";
 import { createDemoRun } from "./demo.js";
 import { exportRun } from "./export.js";
 import { logHookEvent, readStdinJson } from "./hook-log.js";
 import { installPlatform, PLATFORMS, uninstallPlatform } from "./install.js";
 import { inspectRun, formatInspectionHuman } from "./inspect.js";
+import { formatRunListHuman, renderLibrary } from "./library.js";
+import { openAgentboxTarget, openFile } from "./open.js";
 import { recordRun } from "./recorder.js";
 import { generateReport } from "./report.js";
 import { renderRun } from "./render.js";
 import { runMcpProxy } from "./mcp-proxy.js";
 
-const PKG_VERSION = "0.3.0";
+const PKG_VERSION = "0.4.0";
 const OK = 0;
 const USER_ERROR = 1;
 const INTERNAL_ERROR = 2;
@@ -196,7 +201,7 @@ function buildProgram(): Command {
   program
     .command("export")
     .description("export a redacted shareable zip for a run")
-    .argument("<run>", "run directory, artifact path, or latest")
+    .argument("<run>", "run id, prefix, directory, artifact path, or latest")
     .option("--out <zip>", "zip file to write")
     .option("--redact-pattern <regex>", "extra regex to redact from exported artifacts", collect, [])
     .action((target: string, _opts, cmd: Command) => {
@@ -220,7 +225,7 @@ function buildProgram(): Command {
   program
     .command("report")
     .description("create a Markdown report for a run")
-    .argument("<run>", "run directory, artifact path, or latest")
+    .argument("<run>", "run id, prefix, directory, artifact path, or latest")
     .option("--out <file>", "Markdown file to write")
     .option("--artifact-url <url>", "GitHub Actions artifact URL to include")
     .option("--zip <path>", "export zip path to include")
@@ -258,13 +263,141 @@ function buildProgram(): Command {
     });
 
   program
-    .command("render")
-    .description("regenerate agentbox-run.html for a run directory")
-    .argument("<run>", "run directory or file inside it")
+    .command("list")
+    .description("list local Agentbox runs")
+    .option("--limit <n>", "maximum runs to list")
+    .option("--status <status>", "status: all, passed, failed, risky, invalid", "all")
+    .action((_opts, cmd: Command) => {
+      const flags = mergeFlags(cmd);
+      const opts = cmd.opts<{ limit?: string; status: string }>();
+      try {
+        const result = listRuns(resolveCwd(flags), {
+          limit: parseOptionalLimit("limit", opts.limit),
+          status: parseStatus(opts.status),
+        });
+        if (flags.json) successJson(result);
+        else process.stdout.write(formatRunListHuman({
+          cwd: resolveCwd(flags),
+          limit: parseOptionalLimit("limit", opts.limit),
+          status: parseStatus(opts.status),
+        }));
+        process.exit(OK);
+      } catch (err) {
+        exitInternal(err, flags);
+      }
+    });
+
+  program
+    .command("library")
+    .description("generate a local HTML index of Agentbox runs")
+    .option("--out <file>", "HTML file to write")
+    .option("--open", "open the generated library in a browser")
+    .action((_opts, cmd: Command) => {
+      const flags = mergeFlags(cmd);
+      const opts = cmd.opts<{ out?: string; open?: boolean }>();
+      try {
+        const result = renderLibrary({
+          cwd: resolveCwd(flags),
+          outPath: opts.out ? resolveArg(opts.out, flags) : undefined,
+        });
+        if (opts.open) {
+          const opened = openFile(result.htmlPath, "library");
+          if (opened.warning) log(`warning: ${opened.warning}`, flags);
+        }
+        if (flags.json) successJson(result);
+        else log(`library ${result.htmlPath}`, flags);
+        process.exit(OK);
+      } catch (err) {
+        exitInternal(err, flags);
+      }
+    });
+
+  program
+    .command("open")
+    .description("open a run replay or the local run library")
+    .argument("<run>", "run id, prefix, directory, artifact path, latest, or library")
     .action((target: string, _opts, cmd: Command) => {
       const flags = mergeFlags(cmd);
       try {
-        const html = renderRun(resolveArg(target, flags), resolveCwd(flags));
+        const result = openAgentboxTarget({ target, cwd: resolveCwd(flags) });
+        if (flags.json) successJson(result);
+        else {
+          if (result.warning) log(`warning: ${result.warning}`, flags);
+          log(`${result.opened ? "opened" : "path"} ${result.path}`, flags);
+        }
+        process.exit(OK);
+      } catch (err) {
+        exitInternal(err, flags);
+      }
+    });
+
+  program
+    .command("compare")
+    .description("compare two Agentbox runs")
+    .argument("<base>", "base run id, prefix, directory, artifact path, or latest")
+    .argument("<head>", "head run id, prefix, directory, artifact path, or latest")
+    .option("--out <file>", "Markdown file to write")
+    .option("--max-files <n>", "maximum changed files per section")
+    .option("--max-risks <n>", "maximum risk flags per run")
+    .action((base: string, head: string, _opts, cmd: Command) => {
+      const flags = mergeFlags(cmd);
+      const opts = cmd.opts<{ out?: string; maxFiles?: string; maxRisks?: string }>();
+      try {
+        const result = compareRuns({
+          base,
+          head,
+          cwd: resolveCwd(flags),
+          outPath: opts.out ? resolveArg(opts.out, flags) : undefined,
+          maxFiles: parseOptionalLimit("max-files", opts.maxFiles),
+          maxRisks: parseOptionalLimit("max-risks", opts.maxRisks),
+        });
+        if (flags.json) successJson(result);
+        else if (result.outPath) log(`wrote ${result.outPath}`, flags);
+        else process.stdout.write(result.markdown);
+        process.exit(OK);
+      } catch (err) {
+        exitInternal(err, flags);
+      }
+    });
+
+  program
+    .command("clean")
+    .description("delete old Agentbox run directories")
+    .option("--keep <n>", "preserve the newest n runs")
+    .option("--before <duration>", "delete runs older than a duration such as 12h, 7d, or 4w")
+    .option("--dry-run", "show selected runs without deleting")
+    .option("--yes", "confirm deletion")
+    .action((_opts, cmd: Command) => {
+      const flags = mergeFlags(cmd);
+      const opts = cmd.opts<{ keep?: string; before?: string; dryRun?: boolean; yes?: boolean }>();
+      try {
+        const result = cleanRuns({
+          cwd: resolveCwd(flags),
+          keep: parseOptionalLimit("keep", opts.keep),
+          before: opts.before,
+          dryRun: opts.dryRun,
+          yes: opts.yes,
+        });
+        if (flags.json) successJson(result);
+        else {
+          const verb = result.deleted ? "deleted" : "would delete";
+          log(`${verb} ${result.runs.length} run(s), ${result.bytes} bytes`, flags);
+          for (const run of result.runs) log(`  ${run.id} ${run.runDir}`, flags);
+        }
+        process.exit(OK);
+      } catch (err) {
+        exitInternal(err, flags);
+      }
+    });
+
+  program
+    .command("render")
+    .description("regenerate agentbox-run.html for a run directory")
+    .argument("<run>", "run id, prefix, directory, artifact path, or latest")
+    .action((target: string, _opts, cmd: Command) => {
+      const flags = mergeFlags(cmd);
+      try {
+        const html = renderRun(target, resolveCwd(flags));
         if (flags.json) successJson({ html });
         else log(`rendered ${html}`, flags);
         process.exit(OK);
@@ -276,11 +409,11 @@ function buildProgram(): Command {
   program
     .command("inspect")
     .description("summarize a recorded run")
-    .argument("<run>", "run directory or file inside it")
+    .argument("<run>", "run id, prefix, directory, artifact path, or latest")
     .action((target: string, _opts, cmd: Command) => {
       const flags = mergeFlags(cmd);
       try {
-        const inspection = inspectRun(resolveArg(target, flags), resolveCwd(flags));
+        const inspection = inspectRun(target, resolveCwd(flags));
         if (flags.json) successJson(inspection);
         else process.stdout.write(formatInspectionHuman(inspection));
         process.exit(OK);
@@ -337,6 +470,13 @@ function parseOptionalLimit(name: string, value: string | undefined): number | u
   const parsed = Number(value);
   if (!Number.isInteger(parsed) || parsed < 0) throw new Error(`${name} must be a non-negative integer`);
   return parsed;
+}
+
+function parseStatus(value: string): RunStatusFilter {
+  if (value === "all" || value === "passed" || value === "failed" || value === "risky" || value === "invalid") {
+    return value;
+  }
+  throw new Error("status must be one of: all, passed, failed, risky, invalid");
 }
 
 function successJson(data: unknown): void {
@@ -453,7 +593,7 @@ function agentCatalog() {
       {
         name: "export",
         description: "Export a redacted shareable zip for a run.",
-        args: [{ name: "run", required: true, type: "path|latest" }],
+        args: [{ name: "run", required: true, type: "id|prefix|path|latest" }],
         flags: [
           { name: "--out", type: "path" },
           { name: "--redact-pattern", type: "regex", repeatable: true },
@@ -463,7 +603,7 @@ function agentCatalog() {
       {
         name: "report",
         description: "Create a Markdown report for a run.",
-        args: [{ name: "run", required: true, type: "path|latest" }],
+        args: [{ name: "run", required: true, type: "id|prefix|path|latest" }],
         flags: [
           { name: "--out", type: "path" },
           { name: "--artifact-url", type: "url" },
@@ -475,15 +615,67 @@ function agentCatalog() {
         returns: { summary: "ReportSummary", markdown: "string", outPath: "path?" },
       },
       {
+        name: "list",
+        description: "List local Agentbox runs.",
+        args: [],
+        flags: [
+          { name: "--limit", type: "number" },
+          { name: "--status", type: "enum", values: ["all", "passed", "failed", "risky", "invalid"] },
+        ],
+        returns: { runs: "RunListEntry[]", count: "number", invalidCount: "number" },
+      },
+      {
+        name: "library",
+        description: "Generate a local HTML index of Agentbox runs.",
+        args: [],
+        flags: [
+          { name: "--out", type: "path" },
+          { name: "--open", type: "boolean" },
+        ],
+        returns: { htmlPath: "path", runs: "RunListEntry[]", totals: "LibraryTotals" },
+      },
+      {
+        name: "open",
+        description: "Open a run replay or the local run library.",
+        args: [{ name: "run", required: true, type: "id|prefix|path|latest|library" }],
+        returns: { path: "path", target: "library|run", opened: "boolean", warning: "string?" },
+      },
+      {
+        name: "compare",
+        description: "Compare two Agentbox runs.",
+        args: [
+          { name: "base", required: true, type: "id|prefix|path|latest" },
+          { name: "head", required: true, type: "id|prefix|path|latest" },
+        ],
+        flags: [
+          { name: "--out", type: "path" },
+          { name: "--max-files", type: "number" },
+          { name: "--max-risks", type: "number" },
+        ],
+        returns: { summary: "CompareSummary", markdown: "string", outPath: "path?" },
+      },
+      {
+        name: "clean",
+        description: "Delete old Agentbox run directories.",
+        args: [],
+        flags: [
+          { name: "--keep", type: "number" },
+          { name: "--before", type: "duration" },
+          { name: "--dry-run", type: "boolean" },
+          { name: "--yes", type: "boolean" },
+        ],
+        returns: { deleted: "boolean", runs: "RunListEntry[]", bytes: "number" },
+      },
+      {
         name: "render",
         description: "Regenerate agentbox-run.html for a run.",
-        args: [{ name: "run", required: true, type: "path" }],
+        args: [{ name: "run", required: true, type: "id|prefix|path|latest" }],
         returns: { html: "path" },
       },
       {
         name: "inspect",
         description: "Summarize a run.",
-        args: [{ name: "run", required: true, type: "path" }],
+        args: [{ name: "run", required: true, type: "id|prefix|path|latest" }],
         returns: "RunInspection",
       },
       {
